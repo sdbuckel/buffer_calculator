@@ -1,57 +1,83 @@
 import streamlit as st
 import math
 
-# 1. Database
+# 1. Comprehensive Buffer Database
+# Format: { Name: [pKa, Molecular Weight of Acid/Protonated form, Molecular Weight of Salt/Base form] }
 BUFFER_DATA = {
-    "Acetic Acid / Acetate": {"pka": 4.76, "acid_mw": 60.05, "salt_mw": 82.03},
-    "Ammonia / Ammonium": {"pka": 9.25, "acid_mw": 17.03, "salt_mw": 53.49},
-    "TRIS": {"pka": 8.06, "acid_mw": 121.14, "salt_mw": 157.60},
+    "Acetic Acid / Acetate": [4.76, 60.05, 82.03],
+    "Ammonia / Ammonium": [9.25, 53.49, 17.03], # Ammonium Chloride / NH3
+    "CAPS": [10.40, 221.32, 243.30],
+    "Citrate (pKa 1)": [3.13, 192.12, 214.11],
+    "Citrate (pKa 2)": [4.76, 192.12, 214.11],
+    "Citrate (pKa 3)": [6.40, 192.12, 214.11],
+    "Formic Acid / Formate": [3.75, 46.03, 68.01],
+    "HEPES": [7.50, 238.30, 260.28],
+    "MES": [6.10, 195.20, 217.18],
+    "Phosphate (pKa 2)": [7.21, 119.98, 141.96], # NaH2PO4 / Na2HPO4
+    "TRIS": [8.06, 157.60, 121.14], # Tris-HCl / Tris Base
 }
 
-st.title("🧪 Smart Buffer Prep Tool")
+st.set_page_config(page_title="Pro Buffer Lab", page_icon="🧪")
+st.title("🧪 Professional Buffer Lab Calculator")
 
-# --- SIDEBAR ---
-st.sidebar.header("1. Buffer Choice")
-system = st.sidebar.selectbox("System:", list(BUFFER_DATA.keys()))
-pka = BUFFER_DATA[system]["pka"]
+# --- SIDEBAR: CONFIGURATION ---
+st.sidebar.header("1. Chemistry Selection")
+system = st.sidebar.selectbox("Buffer System:", sorted(list(BUFFER_DATA.keys())))
+pka, mw_acid, mw_base = BUFFER_DATA[system]
 
-st.sidebar.header("2. Prep Method")
+st.sidebar.markdown(f"**Selected pKa:** {pka}")
+
+st.sidebar.header("2. Method & Targets")
 method = st.sidebar.radio(
-    "How are you making it?",
-    ["Use Conjugate Pair (Acid + Salt)", "Partial Neutralization (Acid + Strong Base)"]
+    "Preparation Strategy:",
+    ["Conjugate Pair (Acid + Base Salt)", "Titration (Start with Acid + NaOH)", "Titration (Start with Base + HCl)"]
 )
 
-target_ph = st.sidebar.slider("Target pH:", pka-1.5, pka+1.5, pka)
-total_conc = st.sidebar.number_input("Total Buffer Concentration (M):", value=0.1)
-vol_ml = st.sidebar.number_input("Total Volume (mL):", value=500)
+target_ph = st.sidebar.slider("Target pH:", pka-1.5, pka+1.5, float(pka))
+total_conc = st.sidebar.number_input("Total Buffer Molarity (M):", value=0.1, step=0.01)
+vol_ml = st.sidebar.number_input("Final Volume (mL):", value=500, step=50)
 
-# --- MATH LOGIC ---
-# Using Henderson-Hasselbalch: pH = pka + log(Base/Acid)
-# 10^(pH - pka) = Base/Acid
+# --- THE CALCULATIONS ---
+vol_l = vol_ml / 1000
+# Henderson-Hasselbalch: [Base]/[Acid] = 10^(pH - pKa)
 ratio = 10**(target_ph - pka)
 
-# Total_Conc = [Acid] + [Base]
-# [Base] = ratio * [Acid] -> Total_Conc = [Acid] * (1 + ratio)
+# Solve for individual molarities: [Acid] = Total / (1 + ratio)
 acid_molar = total_conc / (1 + ratio)
 base_molar = total_conc - acid_molar
-vol_l = vol_ml / 1000
 
-# --- RESULTS ---
-st.subheader(f"Recipe for {vol_ml}mL of {system} at pH {target_ph:.2f}")
+# --- MAIN DISPLAY ---
+st.subheader(f"Recipe: {system}")
+st.write(f"Targets: **{total_conc} M** at **pH {target_ph:.2f}**")
 
-if method == "Use Conjugate Pair (Acid + Salt)":
-    acid_g = acid_molar * vol_l * BUFFER_DATA[system]["acid_mw"]
-    salt_g = base_molar * vol_l * BUFFER_DATA[system]["salt_mw"]
+col1, col2 = st.columns(2)
+
+if method == "Conjugate Pair (Acid + Base Salt)":
+    mass_acid = acid_molar * vol_l * mw_acid
+    mass_base = base_molar * vol_l * mw_base
     
-    st.success(f"**Step 1:** Weigh out **{salt_g:.3f} g** of the Salt.")
-    st.success(f"**Step 2:** Add **{acid_g:.3f} g** (or equivalent volume) of the Acid.")
-    st.info("**Step 3:** Bring to final volume with DI Water.")
+    col1.metric("Weigh Acid/Salt 1", f"{mass_acid:.3f} g")
+    col2.metric("Weigh Base/Salt 2", f"{mass_base:.3f} g")
+    
+    st.info(f"**Instructions:** Dissolve both components in ~80% of the water (**{vol_ml*0.8:.0f} mL**), verify pH, then top up to **{vol_ml} mL**.")
 
-else:
-    # Partial Neutralization: Start with all Acid, add Strong Base to convert some to Conjugate Base
-    # Moles of Strong Base needed = Moles of Conjugate Base desired
-    base_moles_needed = base_molar * vol_l
-    st.warning("⚠️ This method requires a calibrated pH meter.")
-    st.success(f"**Step 1:** Add **{total_conc * vol_l * BUFFER_DATA[system]['acid_mw']:.3f} g** of Acid to a beaker.")
-    st.success(f"**Step 2:** Slowly titrate with 1M NaOH until the pH meter reads **{target_ph:.2f}**.")
-    st.info(f"*(Note: You will approximately need {(base_moles_needed * 1000):.1f} mL of 1M NaOH)*")
+elif method == "Titration (Start with Acid + NaOH)":
+    mass_start = total_conc * vol_l * mw_acid
+    col1.metric(f"Initial {system} Acid", f"{mass_start:.3f} g")
+    
+    st.success(f"**Step 1:** Dissolve **{mass_start:.3f} g** of the acid form in water.")
+    st.success(f"**Step 2:** Titrate with **NaOH** until pH reachs **{target_ph:.2f}**.")
+    st.caption(f"Estimated 1M NaOH required: ~{(base_molar * vol_l * 1000):.1f} mL")
+
+else: # Start with Base + HCl
+    mass_start = total_conc * vol_l * mw_base
+    col1.metric(f"Initial {system} Base", f"{mass_start:.3f} g")
+    
+    st.success(f"**Step 1:** Dissolve **{mass_start:.3f} g** of the base form in water.")
+    st.success(f"**Step 2:** Titrate with **HCl** until pH reachs **{target_ph:.2f}**.")
+    st.caption(f"Estimated 1M HCl required: ~{(acid_molar * vol_l * 1000):.1f} mL")
+
+# Buffer Capacity Warning
+
+if abs(target_ph - pka) > 1.0:
+    st.warning("⚠️ **Warning:** Your target pH is more than 1 unit away from the pKa. Buffer capacity will be very low.")
